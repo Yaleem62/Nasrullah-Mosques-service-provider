@@ -1,0 +1,46 @@
+{
+  "users": {
+    "user1": {
+      "name": "Ahmed Hassan",
+      "phone": "+1234567890",
+      "email": "1234567890@mosque.app",
+      "services": ["plumbing", "electrical", "generator repair"],
+      "profileViews": 15,
+      "contactsReceived": 8,
+      "createdAt": "2024-01-15T10:00:00Z",
+      "updatedAt": "2024-01-20T14:30:00Z"
+    },
+    "user2": {
+      "name": "Fatima Al-Zahra",
+      "phone": "+1234567891",
+      "email": "1234567891@mosque.app",
+      "services": ["tutoring", "translation", "arabic tutoring"],
+      "profileViews": 22,
+      "contactsReceived": 12,
+      "createdAt": "2024-01-10T09:15:00Z",
+      "updatedAt": "2024-01-22T16:45:00Z"
+    },
+    "user3": {
+      "name": "Omar Abdullah",
+      "phone": "+1234567892",
+      "email": "1234567892@mosque.app",
+      "services": ["catering", "event setup", "cooking"],
+      "profileViews": 31,
+      "contactsReceived": 18,
+      "createdAt": "2024-01-08T11:20:00Z",
+      "updatedAt": "2024-01-21T13:10:00Z"
+    }
+  },
+  "notifications": {
+    "notification1": {
+      "toUserId": "user1",
+      "fromUserId": "user2",
+      "fromUserName": "Fatima Al-Zahra",
+      "fromUserPhone": "+1234567891",
+      "message": "Fatima Al-Zahra is interested in your services",
+      "service": "plumbing, electrical, generator repair",
+      "timestamp": "2024-01-22T10:30:00Z",
+      "read": false
+    }
+  }
+}
