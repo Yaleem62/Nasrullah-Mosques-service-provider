@@ -1,3 +1,4 @@
+//SignupScreen.js
 import React, { useState, useRef, useEffect } from 'react';
 import { 
   View, 
@@ -721,7 +722,7 @@ export default function SignupScreen({ navigation }) {
             style={styles.linkButton}
             disabled={loading}
           >
-            Already have an account? Sign In
+            <Text>Already have an account? Sign In</Text>
           </Button>
 
           <Button

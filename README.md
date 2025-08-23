@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Mosque Services App
 
 A React Native + Firebase app for connecting service providers within mosque communities. Built with Expo managed workflow for easy development and deployment.
@@ -38,3 +39,7 @@ Before you begin, ensure you have:
 git clone <repository-url>
 cd mosque-services-app
 npm install
+=======
+# Nasrullah-Mosques-service-provider
+An app for community members to be able to know about services that are near to them
+>>>>>>> e204a53919d9199b841dc2135823e95b7b03fe9a

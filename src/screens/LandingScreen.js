@@ -11,7 +11,7 @@ export default function LandingScreen({ navigation }) {
           style={styles.logo}
           resizeMode="contain"
         />
-        <Title style={styles.title}>Nasrullah Masjid</Title>
+        <Title style={styles.title}>Nasrullah Masjid Yellow Page</Title>
         <Subheading style={styles.subtitle}>
           Connect with service providers within the mosque
         </Subheading>
