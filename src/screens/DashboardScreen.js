@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+// src/screens/DashboardScreen.js
+import React, { useState, useEffect } from 'react';
 import {
   View,
   StyleSheet,
@@ -7,87 +8,122 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
-import { Title, Text, ActivityIndicator, Chip } from 'react-native-paper';
-import { MaterialCommunityIcons } from '@expo/vector-icons'; // Changed to MaterialCommunityIcons
+import { Title, Text, Chip } from 'react-native-paper';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import ServiceCard from '../components/ServiceCard';
 import SearchBar from '../components/SearchBar';
 import { servicesList } from '../utils/serviceList';
+import { collection, onSnapshot } from 'firebase/firestore';
+import { db } from '../../firebase';
 
-// JSON data for local search fallback
+// 🔹 Local fallback data
 const usersData = {
-  "users": {
-    "user1": {
-      "id": "user1", // Added id
-      "name": "Ahmed Hassan",
-      "phone": "+1234567890",
-      "email": "1234567890@mosque.app",
-      "services": ["plumbing", "electrical", "generator repair"],
-      "profileViews": 15,
-      "contactsReceived": 8,
-      "createdAt": "2024-01-15T10:00:00Z",
-      "updatedAt": "2024-01-20T14:30:00Z"
+  users: {
+    user1: {
+      id: 'user1',
+      name: 'Ahmed Hassan',
+      phone: '+1234567890',
+      email: '1234567890@mosque.app',
+      services: ['plumbing', 'electrical', 'generator repair'],
+      profileViews: 15,
+      contactsReceived: 8,
     },
-    "user2": {
-      "id": "user2", // Added id
-      "name": "Fatima Al-Zahra",
-      "phone": "+1234567891",
-      "email": "1234567891@mosque.app",
-      "services": ["tutoring", "translation", "arabic tutoring"],
-      "profileViews": 22,
-      "contactsReceived": 12,
-      "createdAt": "2024-01-10T09:15:00Z",
-      "updatedAt": "2024-01-22T16:45:00Z"
+    user2: {
+      id: 'user2',
+      name: 'Fatima Al-Zahra',
+      phone: '+1234567891',
+      email: '1234567891@mosque.app',
+      services: ['tutoring', 'translation', 'arabic tutoring'],
+      profileViews: 22,
+      contactsReceived: 12,
     },
-    "user3": {
-      "id": "user3", // Added id
-      "name": "Omar Abdullah",
-      "phone": "+1234567892",
-      "email": "1234567892@mosque.app",
-      "services": ["catering", "event setup", "cooking"],
-      "profileViews": 31,
-      "contactsReceived": 18,
-      "createdAt": "2024-01-08T11:20:00Z",
-      "updatedAt": "2024-01-21T13:10:00Z"
-    }
-  }
+    user3: {
+      id: 'user3',
+      name: 'Omar Abdullah',
+      phone: '+1234567892',
+      email: '1234567892@mosque.app',
+      services: ['catering', 'event setup', 'cooking'],
+      profileViews: 31,
+      contactsReceived: 18,
+    },
+  },
 };
 
-// Popular services for quick access
 const POPULAR_SERVICES = [
-  'plumbing', 'cleaning', 'tutoring', 'electrician', 'gardening', 
-  'handyman', 'beauty', 'fitness', 'catering', 'photography'
+  'plumbing',
+  'cleaning',
+  'tutoring',
+  'electrician',
+  'gardening',
+  'handyman',
+  'beauty',
+  'fitness',
+  'catering',
+  'photography',
 ];
 
 export default function DashboardScreen({ navigation }) {
-  const [searchQuery, setSearchQuery] = useState('');
   const [providers, setProviders] = useState([]);
+  const [allProviders, setAllProviders] = useState([]);
   const [hasSearched, setHasSearched] = useState(false);
   const [searchHistory, setSearchHistory] = useState([]);
+  const [currentSearchQuery, setCurrentSearchQuery] = useState('');
 
-  // Dynamically generate suggestions from JSON and servicesList
+  // 🔥 Load providers from Firestore (for suggestions)
+  useEffect(() => {
+    const unsubscribe = onSnapshot(collection(db, 'users'), (snapshot) => {
+      const firestoreProviders = snapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+
+      // fallback to local if Firestore empty
+      const combined =
+        firestoreProviders.length > 0
+          ? firestoreProviders
+          : Object.values(usersData.users);
+
+      setAllProviders(combined);
+    });
+
+    return () => unsubscribe();
+  }, []);
+
+  // Dynamic suggestions
   const suggestions = Array.from(
     new Set([
       ...servicesList,
-      ...Object.values(usersData.users).flatMap(user => user.services)
+      ...allProviders.flatMap((user) => user.services || []),
     ])
   );
 
-  const handleSearch = (results) => {
+  // 🔎 Handle search results from SearchBar
+  const handleSearchResults = (results, searchTerm = '') => {
+    console.log("📋 DASHBOARD: Received search results:", results.length);
+    console.log("📋 DASHBOARD: Search term:", searchTerm);
+    
     setProviders(results);
     setHasSearched(true);
-    if (searchQuery.trim() && !searchHistory.includes(searchQuery.toLowerCase().trim())) {
-      setSearchHistory(prev => [searchQuery.toLowerCase().trim(), ...prev.slice(0, 4)]);
+    setCurrentSearchQuery(searchTerm);
+
+    // Add to search history if it's a valid search
+    if (searchTerm && !searchHistory.includes(searchTerm)) {
+      setSearchHistory((prev) => [searchTerm, ...prev.slice(0, 4)]);
     }
   };
 
+  // Handle quick search from chips
   const handleQuickSearch = (service) => {
-    setSearchQuery(service);
+    console.log("🚀 DASHBOARD: Quick search for:", service);
+    // The SearchBar component will handle the actual search
+    // We just need to trigger it by setting the query
+    setCurrentSearchQuery(service);
   };
 
   const renderProvider = ({ item }) => (
     <ServiceCard
       provider={item}
-      onPress={() => navigation.navigate('Profile', { provider: item })} // Changed to pass full provider
+      onPress={() => navigation.navigate('Profile', { provider: item })}
     />
   );
 
@@ -138,33 +174,19 @@ export default function DashboardScreen({ navigation }) {
     <View style={styles.emptyStateContainer}>
       {renderRecentSearches()}
       {renderPopularServices()}
-      
+
       <View style={styles.welcomeSection}>
-        <MaterialCommunityIcons // Changed to MaterialCommunityIcons
-          name="magnify" // Changed to magnify
+        <MaterialCommunityIcons
+          name="magnify"
           size={64}
           color="#E0E0E0"
           style={{ marginBottom: 16 }}
         />
         <Text style={styles.welcomeTitle}>Find Local Service Providers</Text>
         <Text style={styles.welcomeText}>
-          Search for services you need and connect with qualified providers in your area.
+          Search for services you need and connect with qualified providers in
+          your area.
         </Text>
-        
-        <View style={styles.featureList}>
-          <View style={styles.featureItem}>
-            <MaterialCommunityIcons name="account-check" size={20} color="#4CAF50" /> {/* Changed to account-check */}
-            <Text style={styles.featureText}>Verified Providers</Text>
-          </View>
-          <View style={styles.featureItem}>
-            <MaterialCommunityIcons name="star" size={20} color="#FF9800" /> {/* Changed to star */}
-            <Text style={styles.featureText}>Rated & Reviewed</Text>
-          </View>
-          <View style={styles.featureItem}>
-            <MaterialCommunityIcons name="map-marker" size={20} color="#2196F3" /> {/* Changed to map-marker */}
-            <Text style={styles.featureText}>Local Services</Text>
-          </View>
-        </View>
       </View>
     </View>
   );
@@ -179,50 +201,54 @@ export default function DashboardScreen({ navigation }) {
         <View style={styles.headerContent}>
           <Title style={styles.title}>Find Services</Title>
           <Text style={styles.subtitle}>
-            {providers.length > 0 
-              ? `${providers.length} provider${providers.length !== 1 ? 's' : ''} found`
-              : 'Discover local service providers'
-            }
+            {providers.length > 0
+              ? `${providers.length} provider${
+                  providers.length !== 1 ? 's' : ''
+                } found`
+              : 'Discover local service providers'}
           </Text>
         </View>
         <TouchableOpacity
           style={styles.profileButton}
           activeOpacity={0.7}
-          onPress={() => navigation.navigate('Profile')} // Kept as Profile
-          accessibilityLabel="Go to your profile"
+          onPress={() => navigation.navigate('Profile')}
         >
-          <MaterialCommunityIcons name="account-circle" size={36} color="#2E7D32" /> {/* Changed to MaterialCommunityIcons */}
+          <MaterialCommunityIcons
+            name="account-circle"
+            size={36}
+            color="#2E7D32"
+          />
         </TouchableOpacity>
       </View>
 
       <View style={styles.searchSection}>
         <SearchBar
-          onSearch={handleSearch}
-          initialValue={searchQuery}
+          onSearch={handleSearchResults}
+          initialValue={currentSearchQuery}
           suggestions={suggestions}
           usersData={usersData}
+          onSearchStateChange={(state) => {
+            // Update current query when user types
+            if (state.query !== currentSearchQuery) {
+              setCurrentSearchQuery(state.query);
+            }
+          }}
         />
       </View>
 
       <View style={styles.content}>
         {providers.length === 0 && hasSearched ? (
           <View style={styles.centered}>
-            <MaterialCommunityIcons // Changed to MaterialCommunityIcons
-              name="magnify-close" // Changed to magnify-close
+            <MaterialCommunityIcons
+              name="magnify-close"
               size={64}
               color="#E0E0E0"
               style={{ marginBottom: 16 }}
             />
-            <Text style={styles.noResultsTitle}>
-              No providers found
-            </Text>
+            <Text style={styles.noResultsTitle}>No providers found</Text>
             <Text style={styles.noResultsText}>
-              No providers found for "{searchQuery}".
+              No providers found for "{currentSearchQuery}".
             </Text>
-            <Text style={styles.noResultsHint}>
-              Try a different search term or browse popular services below.
-            </Text>
-            
             {renderPopularServices()}
           </View>
         ) : !hasSearched ? (
@@ -237,14 +263,11 @@ export default function DashboardScreen({ navigation }) {
             keyboardShouldPersistTaps="handled"
             ListHeaderComponent={
               <Text style={styles.resultsHeader}>
-                Found {providers.length} provider{providers.length !== 1 ? 's' : ''} for "{searchQuery}"
+                Found {providers.length} provider
+                {providers.length !== 1 ? 's' : ''} for "{currentSearchQuery}"
               </Text>
             }
             ListFooterComponent={<View style={{ height: 32 }} />}
-            initialNumToRender={10}
-            maxToRenderPerBatch={5}
-            updateCellsBatchingPeriod={100}
-            removeClippedSubviews={true}
           />
         )}
       </View>
@@ -253,44 +276,20 @@ export default function DashboardScreen({ navigation }) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#FAFAFA',
-  },
+  container: { flex: 1, backgroundColor: '#FAFAFA' },
   header: {
     backgroundColor: '#FFFFFF',
     paddingTop: 50,
     paddingBottom: 20,
     paddingHorizontal: 24,
     flexDirection: 'row',
-    alignItems: 'flex-start',
     justifyContent: 'space-between',
     elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    zIndex: 10,
   },
-  headerContent: {
-    flex: 1,
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: '700',
-    color: '#2E7D32',
-    letterSpacing: 0.3,
-    marginBottom: 4,
-  },
-  subtitle: {
-    fontSize: 14,
-    color: '#666',
-    fontWeight: '400',
-  },
-  profileButton: {
-    padding: 8,
-    marginTop: 4,
-  },
+  headerContent: { flex: 1 },
+  title: { fontSize: 28, fontWeight: '700', color: '#2E7D32' },
+  subtitle: { fontSize: 14, color: '#666' },
+  profileButton: { padding: 8, marginTop: 4 },
   searchSection: {
     backgroundColor: '#FFFFFF',
     paddingHorizontal: 24,
@@ -298,107 +297,40 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#E5E5E5',
   },
-  content: {
-    flex: 1,
-  },
-  centered: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 32,
-  },
-  emptyStateContainer: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 24,
-  },
-  quickAccessContainer: {
-    marginBottom: 32,
-  },
+  content: { flex: 1 },
+  centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  emptyStateContainer: { flex: 1, paddingHorizontal: 24, paddingTop: 24 },
+  quickAccessContainer: { marginBottom: 32 },
   sectionTitle: {
     fontSize: 18,
     fontWeight: '600',
     color: '#333',
     marginBottom: 12,
   },
-  chipContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  serviceChip: {
-    marginBottom: 8,
-    backgroundColor: '#E8F5E8',
-    borderColor: '#4CAF50',
-  },
-  recentChip: {
-    marginBottom: 8,
-    backgroundColor: '#F3E5F5',
-  },
-  chipText: {
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  welcomeSection: {
-    alignItems: 'center',
-    paddingVertical: 32,
-  },
+  chipContainer: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  serviceChip: { marginBottom: 8, backgroundColor: '#E8F5E8' },
+  recentChip: { marginBottom: 8, backgroundColor: '#F3E5F5' },
+  chipText: { fontSize: 12, fontWeight: '500' },
+  welcomeSection: { alignItems: 'center', paddingVertical: 32 },
   welcomeTitle: {
     fontSize: 24,
     fontWeight: '700',
     color: '#333',
     textAlign: 'center',
-    marginBottom: 8,
   },
   welcomeText: {
     fontSize: 16,
     color: '#666',
     textAlign: 'center',
-    lineHeight: 24,
     marginBottom: 24,
   },
-  featureList: {
-    alignItems: 'flex-start',
-  },
-  featureItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  featureText: {
-    fontSize: 16,
-    color: '#333',
-    fontWeight: '500',
-    marginLeft: 8,
-  },
-  noResultsTitle: {
-    fontSize: 22,
-    fontWeight: '700',
-    color: '#333',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  noResultsText: {
-    fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  noResultsHint: {
-    fontSize: 14,
-    color: '#888',
-    textAlign: 'center',
-    marginBottom: 24,
-  },
-  listContainer: {
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-  },
+  noResultsTitle: { fontSize: 22, fontWeight: '700', color: '#333' },
+  noResultsText: { fontSize: 16, color: '#666', textAlign: 'center' },
+  listContainer: { paddingVertical: 16, paddingHorizontal: 24 },
   resultsHeader: {
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
     marginBottom: 16,
-    paddingHorizontal: 4,
   },
 });

@@ -3,14 +3,24 @@ import { View, StyleSheet, Image, TouchableOpacity, Alert, ScrollView } from 're
 import { TextInput, Button, Title, Paragraph, ActivityIndicator, Card } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { getAuth } from 'firebase/auth';
+import { getAuth , signOut} from 'firebase/auth';
 import { doc, getDoc, setDoc, increment } from 'firebase/firestore';
-import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db } from '../../firebase';
+const CLOUD_NAME = "dwhteytc2"; // from Cloudinary dashboard
+const UPLOAD_PRESET = "nasrullah_unsigned";
 
 export default function ProfileScreen({ route, navigation }) {
   const auth = getAuth();
-  const storage = getStorage();
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+      console.log("✅ User signed out");
+      navigation.replace("Login"); // make sure "Login" is one of your routes
+    } catch (error) {
+      console.error("❌ Error signing out:", error);
+      Alert.alert("Error", "Could not log out. Try again.");
+    }
+  };
   const user = auth.currentUser;
   const provider = route.params?.provider;
   const isOwnProfile = !provider;
@@ -68,33 +78,51 @@ export default function ProfileScreen({ route, navigation }) {
   }, [user, provider, fetchUserData]);
 
   const pickImage = useCallback(async () => {
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permissionResult.granted) {
-      Alert.alert('Permission Denied', 'Please allow access to photos.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.5,
-    });
-    if (!result.canceled && result.assets?.length > 0) {
-      setImageLoading(true);
-      try {
-        const response = await fetch(result.assets[0].uri);
-        const blob = await response.blob();
-        const storageRef = ref(storage, `profileImages/${user.uid}`);
-        await uploadBytes(storageRef, blob);
-        const downloadURL = await getDownloadURL(storageRef);
-        setUserData(prev => ({ ...prev, profileImage: downloadURL }));
-      } catch (error) {
-        console.error('Error uploading image:', error);
-        Alert.alert('Error', 'Failed to upload image.');
-      } finally {
-        setImageLoading(false);
+  const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+  if (!permissionResult.granted) {
+    Alert.alert('Permission Denied', 'Please allow access to photos.');
+    return;
+  }
+
+  const result = await ImagePicker.launchImageLibraryAsync({
+    mediaTypes: ImagePicker.MediaTypeOptions.Images,
+    allowsEditing: true,
+    aspect: [1, 1],
+    quality: 0.7,
+  });
+
+  if (!result.canceled && result.assets?.length > 0) {
+    setImageLoading(true);
+    try {
+      const imageUri = result.assets[0].uri;
+
+      let data = new FormData();
+      data.append("file", {
+        uri: imageUri,
+        type: "image/jpeg",
+        name: `profile_${user.uid}.jpg`,
+      });
+      data.append("upload_preset", UPLOAD_PRESET);
+
+      let res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUD_NAME}/image/upload`, {
+        method: "POST",
+        body: data,
+      });
+
+      let resultData = await res.json();
+      if (resultData.secure_url) {
+        // ✅ Save Cloudinary URL in state (and later in Firestore)
+        setUserData(prev => ({ ...prev, profileImage: resultData.secure_url }));
+      } else {
+        Alert.alert("Upload Failed", "Could not upload image to Cloudinary");
       }
+    } catch (error) {
+      console.error("Error uploading to Cloudinary:", error);
+      Alert.alert("Error", "Failed to upload image.");
+    } finally {
+      setImageLoading(false);
     }
+  }
   }, [user]);
 
   const addService = useCallback(() => {
@@ -320,6 +348,16 @@ export default function ProfileScreen({ route, navigation }) {
               Save Changes
             </Button>
           )}
+          {isOwnProfile && (
+      <Button
+        mode="outlined"
+        onPress={handleLogout}
+        style={styles.logoutButton}
+        labelStyle={{ color: '#D32F2F', fontWeight: 'bold' }}
+      >
+        Log Out
+      </Button>
+    )}
         </Card.Content>
       </Card>
     </ScrollView>
@@ -421,4 +459,9 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     minWidth: 120,
   },
+  logoutButton: {
+  marginTop: 12,
+  borderRadius: 8,
+  borderColor: '#D32F2F',
+},
 });

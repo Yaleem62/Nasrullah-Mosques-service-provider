@@ -1,3 +1,4 @@
+// src/components/ServiceCard.js
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { Card, Title, Text, Chip } from 'react-native-paper';
