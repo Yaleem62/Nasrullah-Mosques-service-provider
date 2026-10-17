@@ -14,8 +14,10 @@ export default function ProfileScreen({ route, navigation }) {
   const handleLogout = async () => {
     try {
       await signOut(auth);
-      console.log("✅ User signed out");
-      navigation.replace("Login"); // make sure "Login" is one of your routes
+      // NOTE: no navigation.replace('Login') here. This screen lives in the
+      // AppStack navigator and 'Login' is not a route in it, so replacing
+      // crashed navigation. The useAuth() listener in App.js automatically
+      // switches to the AuthStack once the user is signed out.
     } catch (error) {
       console.error("❌ Error signing out:", error);
       Alert.alert("Error", "Could not log out. Try again.");
@@ -32,6 +34,7 @@ export default function ProfileScreen({ route, navigation }) {
     email: '',
     services: [],
     profileImage: null,
+    createdAt: null,
     id: null,
   });
   const [newService, setNewService] = useState('');
@@ -49,8 +52,9 @@ export default function ProfileScreen({ route, navigation }) {
           name: data.name || user.displayName || '',
           phone: data.phone || '',
           email: data.email || user.email || '',
-          services: data.services || [],
+          services: Array.isArray(data.services) ? data.services : [],
           profileImage: data.profileImage || null,
+          createdAt: data.createdAt || null,
           id: user.uid,
         });
       } else {
@@ -70,7 +74,7 @@ export default function ProfileScreen({ route, navigation }) {
         name: provider.name || '',
         phone: provider.phone || '',
         email: provider.email || '',
-        services: provider.services || [],
+        services: Array.isArray(provider.services) ? provider.services : [],
         profileImage: provider.profileImage || null,
         id: provider.id,
       });
@@ -126,13 +130,23 @@ export default function ProfileScreen({ route, navigation }) {
   }, [user]);
 
   const addService = useCallback(() => {
-    if (!newService.trim()) return;
+    const serviceKey = newService.toLowerCase().replace(/\s+/g, ' ').trim();
+    if (!serviceKey) return;
+    const current = Array.isArray(userData.services) ? userData.services : [];
+    if (current.some(s => String(s).toLowerCase() === serviceKey)) {
+      Alert.alert('Notice', 'This service is already in your list');
+      return;
+    }
+    if (current.length >= 3) {
+      Alert.alert('Limit Reached', 'You can only offer up to 3 services');
+      return;
+    }
     setUserData(prev => ({
       ...prev,
-      services: [...prev.services, newService.trim()],
+      services: [...(Array.isArray(prev.services) ? prev.services : []), serviceKey],
     }));
     setNewService('');
-  }, [newService]);
+  }, [newService, userData.services]);
 
   const removeService = useCallback((index) => {
     setUserData(prev => ({
@@ -157,10 +171,15 @@ export default function ProfileScreen({ route, navigation }) {
         name: userData.name.trim(),
         phone: userData.phone.trim(),
         email: userData.email.trim(),
-        services: userData.services,
+        // Normalized to lowercase so search always matches; guarded against
+        // non-array values, which previously overwrote the array and broke search
+        services: (Array.isArray(userData.services) ? userData.services : [])
+          .map(s => String(s).toLowerCase().replace(/\s+/g, ' ').trim())
+          .filter(Boolean),
         profileImage: userData.profileImage || null,
-        profileViews: userData.profileViews || 0,
-        contactsReceived: userData.contactsReceived || 0,
+        // profileViews / contactsReceived intentionally NOT written: they are
+        // not in component state, and writing 0 here reset the live counters
+        // incremented by ServiceCard taps.
         createdAt: userData.createdAt || new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       }, { merge: true });

@@ -23,7 +23,7 @@ export default function EditServicesScreen() {
       (doc) => {
         if (doc.exists()) {
           const data = doc.data();
-          setUserServices(data.services || []);
+          setUserServices(Array.isArray(data.services) ? data.services : []);
         } else {
           setUserServices([]); // No doc yet, start empty
         }
@@ -65,7 +65,7 @@ export default function EditServicesScreen() {
   };
 
   const addService = (service) => {
-    const serviceKey = service.toLowerCase().trim();
+    const serviceKey = String(service).toLowerCase().replace(/\s+/g, ' ').trim();
 
     // Check if already exists
     if (userServices.includes(serviceKey)) {

@@ -1,5 +1,5 @@
 // src/screens/DashboardScreen.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   StyleSheet,
@@ -13,6 +13,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import ServiceCard from '../components/ServiceCard';
 import SearchBar from '../components/SearchBar';
 import { servicesList } from '../utils/serviceList';
+import { normalizeServices } from '../utils/searchService';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../../firebase';
 
@@ -49,17 +50,21 @@ const usersData = {
   },
 };
 
+// Aligned with src/utils/serviceList.js so every quick-search chip can
+// actually match a provider. Previously contained entries such as
+// 'electrician', 'beauty' and 'fitness' that exist in NO provider's services
+// array, so tapping them always returned "No providers found".
 const POPULAR_SERVICES = [
   'plumbing',
   'cleaning',
   'tutoring',
-  'electrician',
+  'electrical',
   'gardening',
   'handyman',
-  'beauty',
-  'fitness',
+  'tailoring',
   'catering',
   'photography',
+  'cooking',
 ];
 
 export default function DashboardScreen({ navigation }) {
@@ -89,36 +94,50 @@ export default function DashboardScreen({ navigation }) {
     return () => unsubscribe();
   }, []);
 
-  // Dynamic suggestions
+  // Dynamic suggestions — normalizeServices guards against `services` being
+  // undefined (new signups) or a plain string, which previously produced
+  // garbage suggestions or crashed the flatMap.
   const suggestions = Array.from(
     new Set([
       ...servicesList,
-      ...allProviders.flatMap((user) => user.services || []),
+      ...allProviders.flatMap((user) => normalizeServices(user?.services)),
     ])
   );
 
-  // 🔎 Handle search results from SearchBar
-  const handleSearchResults = (results, searchTerm = '') => {
-    console.log("📋 DASHBOARD: Received search results:", results.length);
-    console.log("📋 DASHBOARD: Search term:", searchTerm);
-    
-    setProviders(results);
+  // 🔎 Handle search results from SearchBar. The second argument is the
+  // search term — it was previously ALWAYS '' because SearchBar called
+  // `onSearch(results)` without it, so the header showed the wrong query.
+  const handleSearchResults = useCallback((results, searchTerm = '') => {
+    // Empty term = the user cleared the input -> back to the welcome state
+    // instead of a permanent "No providers found for ''" screen
+    if (!searchTerm) {
+      setProviders([]);
+      setHasSearched(false);
+      setCurrentSearchQuery('');
+      return;
+    }
+
+    setProviders(results || []);
     setHasSearched(true);
     setCurrentSearchQuery(searchTerm);
 
-    // Add to search history if it's a valid search
-    if (searchTerm && !searchHistory.includes(searchTerm)) {
-      setSearchHistory((prev) => [searchTerm, ...prev.slice(0, 4)]);
-    }
-  };
+    setSearchHistory((prev) => {
+      const normalized = searchTerm.toLowerCase().trim();
+      if (!normalized || prev.includes(normalized)) return prev;
+      return [normalized, ...prev.slice(0, 4)];
+    });
+  }, []);
 
-  // Handle quick search from chips
-  const handleQuickSearch = (service) => {
-    console.log("🚀 DASHBOARD: Quick search for:", service);
-    // The SearchBar component will handle the actual search
-    // We just need to trigger it by setting the query
+  // Handle quick search from chips — flows into SearchBar via `searchQuery`
+  // prop, which types the text into the input and runs the search.
+  const handleQuickSearch = useCallback((service) => {
     setCurrentSearchQuery(service);
-  };
+  }, []);
+
+  // Stable callback so SearchBar's effect doesn't re-fire every render
+  const handleSearchStateChange = useCallback((state) => {
+    setCurrentSearchQuery((prev) => (state?.query !== undefined && state.query !== prev ? state.query : prev));
+  }, []);
 
   const renderProvider = ({ item }) => (
     <ServiceCard
@@ -201,7 +220,7 @@ export default function DashboardScreen({ navigation }) {
         <View style={styles.headerContent}>
           <Title style={styles.title}>Find Services</Title>
           <Text style={styles.subtitle}>
-            {providers.length > 0
+            {hasSearched && providers.length > 0
               ? `${providers.length} provider${
                   providers.length !== 1 ? 's' : ''
                 } found`
@@ -227,17 +246,13 @@ export default function DashboardScreen({ navigation }) {
           initialValue={currentSearchQuery}
           suggestions={suggestions}
           usersData={usersData}
-          onSearchStateChange={(state) => {
-            // Update current query when user types
-            if (state.query !== currentSearchQuery) {
-              setCurrentSearchQuery(state.query);
-            }
-          }}
+          searchQuery={currentSearchQuery}
+          onSearchStateChange={handleSearchStateChange}
         />
       </View>
 
       <View style={styles.content}>
-        {providers.length === 0 && hasSearched ? (
+        {hasSearched && providers.length === 0 ? (
           <View style={styles.centered}>
             <MaterialCommunityIcons
               name="magnify-close"

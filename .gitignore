@@ -35,3 +35,9 @@ yarn-error.*
 
 # typescript
 *.tsbuildinfo
+
+# test build artifacts
+_tests/*.compiled.js
+
+# firebase admin key (must never be tracked)
+serviceAccountKey.json

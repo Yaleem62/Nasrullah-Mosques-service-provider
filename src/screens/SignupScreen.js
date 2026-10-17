@@ -171,12 +171,21 @@ const SignupScreen = ({ navigation }) => {
       const user = userCredential.user;
       console.log('✅ User account created:', user.uid);
 
-      // Save profile in Firestore
-      console.log('💾 Saving user profile to Firestore...');
+      // Save profile in Firestore.
+      // `services: []` and the other defaults are required: the search
+      // iterates the `services` array of every user doc, and docs created
+      // without it made the user permanently unsearchable (the array bug).
       await setDoc(doc(db, 'users', user.uid), {
+        name: formData.fullName.trim(), // `name` is the field read by search/dashboard
         fullName: formData.fullName.trim(),
         email: emailTrimmed,
+        phone: '',
+        services: [],
+        profileImage: null,
+        profileViews: 0,
+        contactsReceived: 0,
         createdAt: new Date(),
+        updatedAt: new Date(),
       });
       console.log('✅ User profile saved to Firestore');
 

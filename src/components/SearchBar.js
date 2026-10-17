@@ -15,7 +15,6 @@ import {
 } from 'react-native';
 import { Card } from 'react-native-paper';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
-import { debounce } from 'lodash';
 import { runSearch } from '../utils/searchService';
 
 const SEARCH_CONFIG = {
@@ -42,6 +41,21 @@ const COLORS = {
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+// Local debounce implementation — replaces the `lodash` import that was never
+// added to package.json (crashed with "Unable to resolve module lodash").
+function debounce(fn, delay) {
+  let timer = null;
+  const debounced = (...args) => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
+  debounced.cancel = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  return debounced;
+}
+
 export default function SearchBar({
   onSearch,
   initialValue = '',
@@ -50,7 +64,7 @@ export default function SearchBar({
   usersData = {},
   onSearchStateChange,
   maxSuggestions = SEARCH_CONFIG.MAX_SUGGESTIONS,
-  searchQuery = '', // Accept external query
+  searchQuery = '', // External query (e.g. quick-search chips)
 }) {
   const [searchState, setSearchState] = useState({
     query: initialValue,
@@ -64,19 +78,26 @@ export default function SearchBar({
   const inputRef = useRef(null);
   const animationTimeoutRef = useRef(null);
   const currentSearchRef = useRef('');
+  // Mirrors the query currently shown in the input, so the external-searchQuery
+  // effect can ignore echoes of what the user just typed
+  const queryRef = useRef(initialValue);
+
+  // Keep latest props in refs so the debounced search is created once and
+  // never goes stale or restarts mid-typing.
+  const onSearchRef = useRef(onSearch);
+  useEffect(() => {
+    onSearchRef.current = onSearch;
+  }, [onSearch]);
+
+  const usersDataRef = useRef(usersData);
+  useEffect(() => {
+    usersDataRef.current = usersData;
+  }, [usersData]);
 
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(-15)).current;
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
   const inputScaleAnim = useRef(new Animated.Value(1)).current;
-
-  // Update input when external searchQuery changes
-  useEffect(() => {
-    if (searchQuery && searchQuery !== searchState.query) {
-      setSearchState(prev => ({ ...prev, query: searchQuery }));
-      performSearch(searchQuery);
-    }
-  }, [searchQuery]);
 
   useEffect(() => {
     return () => {
@@ -89,24 +110,25 @@ export default function SearchBar({
     onSearchStateChange?.(searchState);
   }, [searchState, onSearchStateChange]);
 
-  // Suggestion Filtering
+  // Suggestion filtering
   const filterSuggestions = useCallback(
-    (query, suggestions) => {
+    (query, suggestionList) => {
       if (!query.trim()) return [];
 
       const searchTerm = query.toLowerCase().trim();
-      const queryWords = searchTerm.split(' ').filter(w => w.length > 0);
+      const queryWords = searchTerm.split(' ').filter((w) => w.length > 0);
 
-      const scoredSuggestions = suggestions
-        .map(service => {
+      return suggestionList
+        .map((rawService) => {
+          const service = String(rawService ?? '');
           const serviceLower = service.toLowerCase();
           let score = 0;
 
           if (serviceLower === searchTerm) score += 100;
           else if (serviceLower.startsWith(searchTerm)) score += 80;
           else if (serviceLower.includes(searchTerm)) score += 60;
-          else {
-            const matchingWords = queryWords.filter(word => serviceLower.includes(word));
+          else if (queryWords.length > 0) {
+            const matchingWords = queryWords.filter((word) => serviceLower.includes(word));
             score += (matchingWords.length / queryWords.length) * 40;
           }
 
@@ -117,55 +139,67 @@ export default function SearchBar({
         .sort((a, b) => b.score - a.score)
         .slice(0, maxSuggestions)
         .map(({ service }) => service);
-
-      return scoredSuggestions;
     },
     [maxSuggestions]
   );
 
-  // Debounced Search
+  // Debounced search — created once. Previously this used `useMemo` with
+  // unstable deps, and was referenced by the `searchQuery` effect BEFORE its
+  // definition in the file, which threw a ReferenceError (TDZ) on mount.
   const performSearch = useMemo(
     () =>
       debounce(async (queryText) => {
         currentSearchRef.current = queryText;
-        
-        if (!queryText.trim()) {
-          setSearchState(prev => ({ ...prev, isLoading: false, error: null }));
-          onSearch?.([]);
+        const trimmed = String(queryText ?? '').trim();
+
+        if (!trimmed) {
+          setSearchState((prev) => ({ ...prev, isLoading: false, error: null }));
+          onSearchRef.current?.([], '');
           return;
         }
 
-        setSearchState(prev => ({ ...prev, isLoading: true, error: null }));
+        setSearchState((prev) => ({ ...prev, isLoading: true, error: null }));
 
         try {
-          console.log('🔍 About to search for:', queryText);
-          const results = await runSearch(queryText, usersData);
-          
-          if (currentSearchRef.current === queryText) {
-            setSearchState(prev => ({ ...prev, isLoading: false }));
+          const results = await runSearch(trimmed, usersDataRef.current);
 
-            if (results.length === 0) {
-              setSearchState(prev => ({ ...prev, error: 'No matching services found' }));
-            } else {
-              setSearchState(prev => ({ ...prev, error: null }));
-            }
+          if (currentSearchRef.current !== queryText) return; // stale response
 
-            onSearch?.(results);
-          }
+          setSearchState((prev) => ({
+            ...prev,
+            isLoading: false,
+            error: results.length === 0 ? 'No matching services found' : null,
+          }));
+
+          // Pass the search term to the parent so it can display it correctly
+          onSearchRef.current?.(results, trimmed);
         } catch (error) {
           console.error('Search error:', error);
-          if (currentSearchRef.current === queryText) {
-            setSearchState(prev => ({
-              ...prev,
-              isLoading: false,
-              error: 'Search failed, please try again.',
-            }));
-            onSearch?.([]);
-          }
+          if (currentSearchRef.current !== queryText) return;
+
+          setSearchState((prev) => ({
+            ...prev,
+            isLoading: false,
+            error: 'Search failed, please try again.',
+          }));
+          onSearchRef.current?.([], trimmed);
         }
       }, SEARCH_CONFIG.DEBOUNCE_DELAY),
-    [usersData, onSearch]
+    []
   );
+
+  useEffect(() => () => performSearch.cancel(), [performSearch]);
+
+  // React to external query changes (quick-search chips). Skips when the
+  // external value is empty or simply echoes the query already in the input,
+  // which would otherwise re-trigger the search in a loop.
+  useEffect(() => {
+    const external = String(searchQuery ?? '').trim();
+    if (!external || external === queryRef.current) return;
+    queryRef.current = external;
+    setSearchState((prev) => ({ ...prev, query: external }));
+    performSearch(external);
+  }, [searchQuery, performSearch]);
 
   // Animations
   const animateIn = useCallback(() => {
@@ -176,29 +210,33 @@ export default function SearchBar({
     ]).start();
   }, [fadeAnim, slideAnim, scaleAnim]);
 
-  const animateOut = useCallback((callback) => {
-    Animated.parallel([
-      Animated.timing(fadeAnim, { toValue: 0, duration: SEARCH_CONFIG.ANIMATION_DURATION, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: -15, duration: SEARCH_CONFIG.ANIMATION_DURATION, useNativeDriver: true }),
-      Animated.timing(scaleAnim, { toValue: 0.95, duration: SEARCH_CONFIG.ANIMATION_DURATION, useNativeDriver: true }),
-    ]).start(callback);
-  }, [fadeAnim, slideAnim, scaleAnim]);
+  const animateOut = useCallback(
+    (callback) => {
+      Animated.parallel([
+        Animated.timing(fadeAnim, { toValue: 0, duration: SEARCH_CONFIG.ANIMATION_DURATION, useNativeDriver: true }),
+        Animated.timing(slideAnim, { toValue: -15, duration: SEARCH_CONFIG.ANIMATION_DURATION, useNativeDriver: true }),
+        Animated.timing(scaleAnim, { toValue: 0.95, duration: SEARCH_CONFIG.ANIMATION_DURATION, useNativeDriver: true }),
+      ]).start(callback);
+    },
+    [fadeAnim, slideAnim, scaleAnim]
+  );
 
-  const animateInputFocus = useCallback((focused) => {
-    Animated.spring(inputScaleAnim, { toValue: focused ? 1.02 : 1, useNativeDriver: true }).start();
-  }, [inputScaleAnim]);
+  const animateInputFocus = useCallback(
+    (focused) => {
+      Animated.spring(inputScaleAnim, { toValue: focused ? 1.02 : 1, useNativeDriver: true }).start();
+    },
+    [inputScaleAnim]
+  );
 
   // Handle query changes
   const handleQueryChange = useCallback(
     (text) => {
-      console.log('📝 Query changed to:', text);
-      
-      setSearchState(prev => ({ ...prev, query: text }));
+      queryRef.current = text;
+      setSearchState((prev) => ({ ...prev, query: text }));
       performSearch(text);
 
       const filtered = filterSuggestions(text, suggestions);
-      
-      setSearchState(prev => ({
+      setSearchState((prev) => ({
         ...prev,
         query: text,
         filteredSuggestions: filtered,
@@ -209,7 +247,7 @@ export default function SearchBar({
         animateIn();
       } else {
         animateOut(() => {
-          setSearchState(prev => ({ ...prev, showSuggestions: false }));
+          setSearchState((prev) => ({ ...prev, showSuggestions: false }));
         });
       }
     },
@@ -218,13 +256,8 @@ export default function SearchBar({
 
   const handleSuggestionPress = useCallback(
     (suggestion) => {
-      console.log('🔍 Suggestion pressed:', suggestion);
-      
-      setSearchState(prev => ({ 
-        ...prev, 
-        query: suggestion, 
-        showSuggestions: false 
-      }));
+      queryRef.current = suggestion;
+      setSearchState((prev) => ({ ...prev, query: suggestion, showSuggestions: false }));
 
       animationTimeoutRef.current = setTimeout(() => {
         performSearch(suggestion);
@@ -236,64 +269,67 @@ export default function SearchBar({
   );
 
   const handleClear = useCallback(() => {
-    console.log('🗑️ Clearing search');
     currentSearchRef.current = '';
-    setSearchState(prev => ({ 
-      ...prev, 
-      query: '', 
-      showSuggestions: false, 
-      error: null 
+    queryRef.current = '';
+    setSearchState((prev) => ({
+      ...prev,
+      query: '',
+      showSuggestions: false,
+      error: null,
     }));
-    onSearch?.([]);
+    onSearchRef.current?.([], '');
     inputRef.current?.focus();
-  }, [onSearch]);
+  }, []);
 
   const handleFocus = useCallback(() => {
-    setSearchState(prev => ({ ...prev, isFocused: true }));
+    setSearchState((prev) => ({ ...prev, isFocused: true }));
     animateInputFocus(true);
 
     if (searchState.filteredSuggestions.length > 0 && searchState.query.trim()) {
-      setSearchState(prev => ({ ...prev, showSuggestions: true }));
+      setSearchState((prev) => ({ ...prev, showSuggestions: true }));
       animateIn();
     }
   }, [searchState.filteredSuggestions.length, searchState.query, animateInputFocus, animateIn]);
 
   const handleBlur = useCallback(() => {
-    setSearchState(prev => ({ ...prev, isFocused: false }));
+    setSearchState((prev) => ({ ...prev, isFocused: false }));
     animateInputFocus(false);
 
     animationTimeoutRef.current = setTimeout(() => {
-      animateOut(() => setSearchState(prev => ({ ...prev, showSuggestions: false })));
+      animateOut(() => setSearchState((prev) => ({ ...prev, showSuggestions: false })));
     }, SEARCH_CONFIG.BLUR_DELAY);
   }, [animateInputFocus, animateOut]);
 
   const handleSubmit = useCallback(() => {
-    console.log('⏎ Submit pressed for:', searchState.query);
     performSearch(searchState.query);
     Keyboard.dismiss();
     inputRef.current?.blur();
   }, [performSearch, searchState.query]);
 
   // Highlighting
-  const HighlightedText = useCallback(({ text, query }) => {
-    if (!query.trim()) return <Text style={styles.suggestionText}>{text}</Text>;
+  const HighlightedText = useCallback(
+    ({ text, query }) => {
+      const safeQuery = String(query ?? '');
+      if (!safeQuery.trim()) return <Text style={styles.suggestionText}>{text}</Text>;
 
-    const regex = new RegExp(`(${query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-    const parts = text.split(regex);
+      const regex = new RegExp(`(${safeQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
+      const parts = String(text ?? '').split(regex);
 
-    return (
-      <Text style={styles.suggestionText}>
-        {parts.map((part, index) => (
-          <Text
-            key={index}
-            style={[styles.suggestionText, part.toLowerCase() === query.toLowerCase() && styles.highlightedText]}
-          >
-            {part}
-          </Text>
-        ))}
-      </Text>
-    );
-  }, []);
+      return (
+        <Text style={styles.suggestionText}>
+          {parts.map((part, index) => (
+            <Text
+              key={index}
+              style={[styles.suggestionText, part.toLowerCase() === safeQuery.toLowerCase() && styles.highlightedText]}
+            >
+              {part}
+            </Text>
+          ))}
+        </Text>
+      );
+    },
+    []
+  );
 
   const renderSuggestion = useCallback(
     ({ item, index }) => (
