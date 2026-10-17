@@ -14,14 +14,22 @@ export default function NotificationsScreen() {
   useEffect(() => {
     if (!user) return;
 
-    // Listen to real-time notifications for the current user
-    const q = query(
+    // Listen to real-time notifications for the current user.
+    // `where` + `orderBy` on different fields requires a composite index in
+    // Firestore; when the index is missing it raises 'failed-precondition'
+    // and this screen stayed on "Loading..." forever. We now fall back to an
+    // unsorted query and sort client-side.
+    const baseQuery = query(
       collection(db, 'notifications'),
-      where('toUserId', '==', user.uid),
-      orderBy('timestamp', 'desc')
+      where('toUserId', '==', user.uid)
     );
 
-    const unsubscribe = onSnapshot(q, (snapshot) => {
+    let unsubscribe = null;
+
+    const sortByTimestamp = (list) =>
+      [...list].sort((a, b) => String(b.timestamp || '').localeCompare(String(a.timestamp || '')));
+
+    const handleSnapshot = (snapshot) => {
       const notificationsList = [];
       snapshot.forEach((doc) => {
         notificationsList.push({
@@ -29,15 +37,31 @@ export default function NotificationsScreen() {
           ...doc.data(),
         });
       });
-      
-      setNotifications(notificationsList);
-      setLoading(false);
-    }, (error) => {
-      console.error('Error loading notifications:', error);
-      setLoading(false);
-    });
 
-    return () => unsubscribe();
+      setNotifications(sortByTimestamp(notificationsList));
+      setLoading(false);
+    };
+
+    const handleError = (error) => {
+      if (error?.code === 'failed-precondition') {
+        // Missing composite index -> retry without orderBy, sort client-side
+        unsubscribe = onSnapshot(baseQuery, handleSnapshot, (retryError) => {
+          console.error('Error loading notifications (fallback):', retryError);
+          setLoading(false);
+        });
+      } else {
+        console.error('Error loading notifications:', error);
+        setLoading(false);
+      }
+    };
+
+    unsubscribe = onSnapshot(
+      query(baseQuery, orderBy('timestamp', 'desc')),
+      handleSnapshot,
+      handleError
+    );
+
+    return () => unsubscribe && unsubscribe();
   }, [user]);
 
   // Mark notification as read with optimistic update
