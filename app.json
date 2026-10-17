@@ -6,11 +6,6 @@
     "orientation": "portrait",
     "icon": "./assets/logo.png",
     "userInterfaceStyle": "light",
-    "splash": {
-      "image": "./assets/logo.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#2E7D32"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -23,7 +18,17 @@
       "googleServicesFile": "./google-services.json"
     },
     "plugins": [
-      "expo-font"
+      "expo-font",
+      "expo-status-bar",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/logo.png",
+          "imageWidth": 200,
+          "resizeMode": "contain",
+          "backgroundColor": "#2E7D32"
+        }
+      ]
     ],
     "extra": {
       "eas": {
